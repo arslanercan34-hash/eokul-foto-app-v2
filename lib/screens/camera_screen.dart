@@ -42,7 +42,25 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  /// -----------------------------------------------------------------------
+  /// MIUI / HyperOS "siyah önizleme" düzeltmesi — DOKUNUN NEDENİ
+  ///
+  /// Bu cihazlarda Flutter'ın `Texture` katmanı, sahne yeniden
+  /// bileşenlenmediği sürece kameranın görüntüsünü çizmiyor (doku siyah
+  /// kalır) — sensör ise çalışmaya devam eder, fotoğraf çekilir.
+  ///
+  /// Biyometrik modda canlı görüntünün gelmesinin nedeni de bu: nefes alan
+  /// kılavuz animasyonu her karede yeniden çizim tetikliyor. e-Okul ve Yaka
+  /// Kartı ekranları statiktir → katman hiç tazelenmez → siyah kalır.
+  ///
+  /// Çözüm: moddan bağımsız, sürekli çalışan ve algılanamayan bir ölçek
+  /// titreşimi (0.999 ↔ 1.001). Her karede `FittedBox` yeniden çizilir,
+  /// doku katmanı tazelenir. Görsel etkisi yoktur.
+  /// -----------------------------------------------------------------------
+  late final AnimationController _previewTicker;
+  late final Animation<double> _previewPulse;
+
   final CameraService _camera = CameraService();
   final StorageService _storage = StorageService.instance;
   final PermissionService _permissions = PermissionService.instance;
@@ -79,12 +97,23 @@ class _CameraScreenState extends State<CameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Doku katmanını sürekli tazeleyen görünmez titreşim (yukarıdaki nota bakın).
+    _previewTicker = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _previewPulse = Tween<double>(begin: 0.999, end: 1.001).animate(
+      CurvedAnimation(parent: _previewTicker, curve: Curves.linear),
+    );
+
     _bootstrap();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _previewTicker.dispose();
     _stopTipTimer();
     _countdownTimer?.cancel();
     _camera.dispose();
@@ -522,13 +551,24 @@ class _CameraScreenState extends State<CameraScreen>
         }
 
         return ClipRect(
-          child: FittedBox(
-            fit: BoxFit.cover,
-            clipBehavior: Clip.hardEdge,
-            child: SizedBox(
-              width: width,
-              height: height,
-              child: cam.CameraPreview(controller),
+          child: AnimatedBuilder(
+            animation: _previewPulse,
+            builder: (context, child) {
+              // 0.999 ↔ 1.001 ölçek: gözle görülmez, ama doku katmanı her
+              // karede yeniden çizilir (MIUI/HyperOS siyah önizleme düzeltmesi).
+              return Transform.scale(
+                scale: _previewPulse.value,
+                child: child,
+              );
+            },
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: width,
+                height: height,
+                child: cam.CameraPreview(controller),
+              ),
             ),
           ),
         );
