@@ -7,6 +7,14 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!--
+      Mikrofon: KAMERA OTURUMUNUN PARCASI olarak isteniyor.
+      MIUI/HyperOS dahil bazi HAL'lerde ses yuvasi olmadan onizleme
+      yüzeyi baslamiyor (canli goruntu siyah kalir). Uygulama ses KAYDI
+      YAPMAZ; kamera paketi enableAudio:true ile oturumu acar.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
       Android 12 ve alti (API <= 32) icin depolama izinleri.
       Uygulama kendi ozel dizininde calistigi icin Android 11+ uzerinde
       bu izinler CALISMA ANINDA istenmez; yine de eski cihazlarda

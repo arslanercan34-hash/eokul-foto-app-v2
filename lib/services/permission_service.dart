@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// İzin isteme sonucu.
@@ -27,6 +28,31 @@ class PermissionService {
   PermissionService._();
 
   static final PermissionService instance = PermissionService._();
+
+  /// Kamera OTURUMU için gereken izinlerin tamamı (kamera + mikrofon).
+  ///
+  /// Mikrofon izni ses kaydı için DEĞİL, kamera oturumunun önizleme
+  /// yüzeyinin açılması için gerekiyor (MIUI/HyperOS dahil bir çok HAL,
+  /// ses yuvası olmadan preview'i başlatmıyor).
+  ///
+  /// İzin kalıcı reddedildiyse kamera sonucu önceliklidir; mikrofon
+  /// reddedilirse session yine de denenebilir — bu yüzden dönen sonuç
+  /// her zaman KAMERA izninin sonucudur.
+  Future<PermissionOutcome> requireCapture() async {
+    final camera = await requireCamera();
+
+    try {
+      final mic = await _request(Permission.microphone).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => PermissionOutcome.unsupported,
+      );
+      // Mikrofon reddedilmişse sessizce devam: kamera yine de çalışabilir;
+      // çalışmasa bile izin ayarları teşhis sayfasında gösterilir.
+      debugPrint('[permission] microphone: ${mic.name}');
+    } catch (_) {}
+
+    return camera;
+  }
 
   /// Kamera iznini zorunlu olarak ister.
   ///

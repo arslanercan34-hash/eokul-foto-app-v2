@@ -137,8 +137,9 @@ class _CameraScreenState extends State<CameraScreen>
 
     try {
       // Önce izin: MIUI'da izin verilmeden initialize() kamera servisini
-      // kilitleyebiliyor.
-      final outcome = await _permissions.requireCamera();
+      // kilitleyebiliyor. Oturum için mikrofon da istenir (önizleme
+      // yüzeyinin açılması şart — "siyah ekran" senaryosuna karşı).
+      final outcome = await _permissions.requireCapture();
       if (!mounted) return;
 
       if (outcome == PermissionOutcome.permanentlyDenied) {
@@ -494,25 +495,39 @@ class _CameraScreenState extends State<CameraScreen>
       return const ColoredBox(color: Colors.black);
     }
 
-    // Önizleme deseni: AspectRatio + FittedBox.cover.
+    // Önizleme deseni: Sınırlı landscape kutu + FittedBox.cover.
     //
-    // Eski desen previewSize'yi (landscape) elle portre kutuya çeviriyordu;
-    // bazı MIUI cihazlarında doku hiç bağlanmadan siyah kalabiliyordu.
-    // Artık kamera paketinin kendi oranını veriyoruz, cover ekana sığdırıyor.
+    // Texture'ın doğru çalışması için kameranın KENDİ landscape
+    // boyutları (örn. 1920×1080) verilir; FittedBox cover bunu portre
+    // ekrana sığdırır. Sınırsız/AspectRatio yolu bazı cihazlarda doku
+    // yüzeyinin yanlış boyutta açılmasına ve siyah kalmasına yol açabiliyor.
     return LayoutBuilder(
       key: _previewKey,
       builder: (context, constraints) {
         final preview = controller.value.previewSize;
-        final aspectRatio = (preview == null || preview.width <= 0)
-            ? 1.0
-            : preview.width / preview.height;
+
+        double width;
+        double height;
+        if (preview == null || preview.width <= 0 || preview.height <= 0) {
+          // Fallback: ekran kadar, varsayılan 4:3 landscape.
+          width = constraints.maxWidth * 4;
+          height = constraints.maxHeight * 3;
+        } else if (preview.width >= preview.height) {
+          width = preview.width;
+          height = preview.height;
+        } else {
+          // Nadir: portrait dönen previewSize — yine uzun kenarı genişlik yap.
+          width = preview.height;
+          height = preview.width;
+        }
 
         return ClipRect(
           child: FittedBox(
             fit: BoxFit.cover,
             clipBehavior: Clip.hardEdge,
-            child: AspectRatio(
-              aspectRatio: aspectRatio,
+            child: SizedBox(
+              width: width,
+              height: height,
               child: cam.CameraPreview(controller),
             ),
           ),
@@ -594,6 +609,7 @@ class _CameraScreenState extends State<CameraScreen>
               _diagRow('Servis hazır', '${_camera.isReady}'),
               _diagRow('initialize değeri', '${value?.isInitialized ?? false}'),
               _diagRow('previewSize', '${value?.previewSize ?? 'null'}'),
+              _diagRow('Ses (oturum)', '${value?.isRecordingVideo == true ? "aktif" : "varsayılan"} · enableAudio: true'),
               _diagRow('Kamera', cameras),
               _diagRow(
                 'Pozlama aralığı',

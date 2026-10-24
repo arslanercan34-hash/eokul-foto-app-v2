@@ -78,8 +78,11 @@ class CameraService {
         final ctrl = cam.CameraController(
           target,
           preset,
-          // MIUI'da kamera servisi bazen ses kanalını açarken kilitlenir.
-          enableAudio: false,
+          // enableAudio: true — MIUI/HyperOS dahil birçok HAL'da oturum
+          // ses yuvası olmadan ÖNİZLEME yüzeyini başlattırmıyor: sensör
+          // fotoğraf alabiliyor ama canlı doku boş kalıyor (siyah ekran).
+          // RECORD_AUDIO izni manifest + runtime'da istenir.
+          enableAudio: true,
           imageFormatGroup: cam.ImageFormatGroup.jpeg,
         );
 
