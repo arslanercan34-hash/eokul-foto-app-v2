@@ -209,7 +209,8 @@ jobs:
 
           android {
               namespace = "com.eokul.fotograf"
-              compileSdk = 35
+              // camera_android / share_plus / path_provider_android SDK 36 ister.
+              compileSdk = 36
 
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
