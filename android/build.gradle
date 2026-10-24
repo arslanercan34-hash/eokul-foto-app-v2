@@ -1,0 +1,55 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+
+// -----------------------------------------------------------------------------
+// AGP 8 "Namespace not specified" korumasi
+//
+// Bazi eski eklentiler (orn. camera_android) build.gradle icinde `namespace`
+// tanimlamaz; AGP 8 bunu HATA olarak verir. Manifest'teki eski usul
+// `package="..."` degerini namespace olarak geriye donuk uyguluyoruz.
+//
+// ONEMLI: `afterEvaluate` KULLANILMAZ.
+// Asagidaki evaluationDependsOn(":app") alt projeleri hemen degerlendirir;
+// sonrasinda afterEvaluate cagirmak
+//   "Cannot run Project.afterEvaluate(Closure) when the project is already
+//    evaluated."
+// hatasina yol acar. `plugins.withId` ise eklenti uygulandigi anda calisir ve
+// degerlendirme sirasindan bagimsizdir.
+// -----------------------------------------------------------------------------
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        try {
+            def androidExt = subproject.extensions.findByName("android")
+            if (androidExt != null && androidExt.namespace == null) {
+                def manifest = subproject.file("src/main/AndroidManifest.xml")
+                if (manifest.exists()) {
+                    def matcher = manifest.text =~ /package="([^"]+)"/
+                    if (matcher.find()) {
+                        androidExt.namespace = matcher.group(1)
+                        println "namespace atandi: ${subproject.name} -> ${matcher.group(1)}"
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Sessizce gec: namespace zaten cozulmus olabilir.
+        }
+    }
+}
+
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
