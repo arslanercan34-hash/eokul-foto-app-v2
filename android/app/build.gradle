@@ -24,9 +24,10 @@ if (flutterVersionName == null) {
 
 android {
     namespace = "com.eokul.fotograf"
-    // Flutter SDK'nin onerdigi deger: eklentilerin istedigi compileSdk
-    // surumuyle otomatik uyum saglar (Flutter 3.38 -> 36).
-    compileSdk = flutter.compileSdkVersion
+    // Eklentiler (camera_android, share_plus, path_provider_android) Android
+    // SDK 36 derlemesi ister; 35'te build uyarıyla YONERILIR ve dokumanlara
+    // gore 36 kullanilmalidir (geriye donuk uyumlu).
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

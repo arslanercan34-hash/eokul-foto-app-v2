@@ -306,7 +306,7 @@ class ExportService {
       // İkili arama: üst sınırı aşmayan en yüksek kalite.
       var lo = 35;
       var hi = 100;
-      List<int>? best;
+      Uint8List? best;
       while (lo <= hi) {
         final mid = (lo + hi) ~/ 2;
         final encoded = img.encodeJpg(base, quality: mid);
@@ -343,10 +343,10 @@ class ExportService {
   // ---------------------------------------------------------------------------
 
   img.Image _newCanvas(int width, int height, img.Color background) {
-    // NOT: image 4.x'te Image() constructor'ı POSITIONAL'dır:
-    //   Image(width, height)
+    // NOT: image 4.12'de Image() constructor'ı NAMED parametreli
+    //   Image(width: ..., height: ...)
     return img.copyExpandCanvas(
-      img.Image(width, height),
+      img.Image(width: width, height: height),
       newWidth: width,
       newHeight: height,
       backgroundColor: background,

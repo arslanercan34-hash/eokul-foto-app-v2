@@ -94,6 +94,9 @@ class CameraService {
         _controller = ctrl;
         _description = target;
 
+        // Pozlama aralığını oku (başarısız olsa da devam edilir).
+        await refreshExposure();
+
         // Vesikalık için otomatik odak şart.
         try {
           await ctrl.setFocusMode(cam.FocusMode.auto);
@@ -215,30 +218,44 @@ class CameraService {
     return true;
   }
 
-  /// Pozlama (parlaklık) ayarı.
+  /// Pozlama (parlaklık) aralığı — önbellek.
   ///
-  /// Dönüş: kullanım aralığı — `min` == `max` ise değiştirilemez.
-  ({double min, double max, double value}) get exposureRange {
+  /// camera 0.10.x'te `CameraValue` üzerinde exposure offset getter'ı YOK;
+  /// aralık `getMinExposureOffset()` / `getMaxExposureOffset()` async
+  /// metotlarıyla okunur. Bu yüzden [refreshExposure] çağrılana kadar
+  /// değer 0/0 (değiştirilemez) görünür.
+  ({double min, double max, double value}) _exposure =
+      (min: 0.0, max: 0.0, value: 0.0);
+
+  ({double min, double max, double value}) get exposureRange => _exposure;
+
+  /// Aralığı kameradan okur (initialize / kamera değiştirme sonrası çağırın).
+  Future<void> refreshExposure() async {
     final ctrl = _controller;
-    if (ctrl == null || !ctrl.value.isInitialized) {
-      return (min: 0, max: 0, value: 0);
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+    try {
+      final min = await ctrl.getMinExposureOffset();
+      final max = await ctrl.getMaxExposureOffset();
+      _exposure = (
+        min: min,
+        max: max,
+        value: _exposure.value.clamp(min, max).toDouble(),
+      );
+    } catch (_) {
+      // OEM kameralar pozlama aralığını sunmayabilir; slider gizlenir.
     }
-    final v = ctrl.value;
-    return (
-      min: v.minExposureOffset,
-      max: v.maxExposureOffset,
-      value: v.exposureOffset,
-    );
   }
 
   Future<void> setExposureOffset(double offset) async {
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
     try {
-      final v = ctrl.value;
-      if (v.minExposureOffset >= v.maxExposureOffset) return;
-      final clamped = offset.clamp(v.minExposureOffset, v.maxExposureOffset);
-      await ctrl.setExposureOffset(clamped);
+      final min = _exposure.min;
+      final max = _exposure.max;
+      if (min >= max) return;
+      final double clamped = offset.clamp(min, max).toDouble();
+      final double applied = await ctrl.setExposureOffset(clamped);
+      _exposure = (min: min, max: max, value: applied);
     } catch (_) {
       // OEM kameralar pozlama kaydırmayı reddedebilir.
     }

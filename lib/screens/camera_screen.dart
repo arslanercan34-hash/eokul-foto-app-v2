@@ -224,7 +224,7 @@ class _CameraScreenState extends State<CameraScreen>
     const order = <cam.FlashMode>[
       cam.FlashMode.off,
       cam.FlashMode.auto,
-      cam.FlashMode.on,
+      cam.FlashMode.always,
       cam.FlashMode.torch,
     ];
     final next = order[(_flashMode.index + 1) % order.length];
@@ -673,7 +673,7 @@ class _CameraScreenState extends State<CameraScreen>
                         ? Colors.white
                         : Colors.white70,
                   ),
-                  side: const WidgetStateBorderSide(
+                  side: const WidgetStatePropertyAll(
                     BorderSide(color: Colors.white24),
                   ),
                   textStyle: const WidgetStatePropertyAll(

@@ -118,7 +118,8 @@ class AppSettings {
       mode: mode ?? this.mode,
       eokulResolution: eokulResolution ?? this.eokulResolution,
       biometricResolution: biometricResolution ?? this.biometricResolution,
-      eokulMaxKb: eokulMaxKb ?? this.eokulMaxKb,
+      // Sınır: 15–50 KB (fromJson ile aynı kural — tek doğruluk kaynağı).
+      eokulMaxKb: (eokulMaxKb ?? this.eokulMaxKb).clamp(15, 50),
       biometricTag: biometricTag ?? this.biometricTag,
       timerSeconds: timerSeconds ?? this.timerSeconds,
       suggestEnhance: suggestEnhance ?? this.suggestEnhance,
