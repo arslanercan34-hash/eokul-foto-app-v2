@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' show FontFeature;
 
 import 'package:camera/camera.dart' as cam;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -164,6 +166,8 @@ class _CameraScreenState extends State<CameraScreen>
         _error = null;
         _exposureValue = _camera.exposureRange.value;
       });
+      // MIUI'da doku yüzeyi hiç bağlanmazsa otomatik kurtarma kur.
+      _schedulePreviewRecovery();
     } on CameraServiceException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -490,23 +494,165 @@ class _CameraScreenState extends State<CameraScreen>
       return const ColoredBox(color: Colors.black);
     }
 
+    // Önizleme deseni: AspectRatio + FittedBox.cover.
+    //
+    // Eski desen previewSize'yi (landscape) elle portre kutuya çeviriyordu;
+    // bazı MIUI cihazlarında doku hiç bağlanmadan siyah kalabiliyordu.
+    // Artık kamera paketinin kendi oranını veriyoruz, cover ekana sığdırıyor.
     return LayoutBuilder(
       key: _previewKey,
       builder: (context, constraints) {
+        final preview = controller.value.previewSize;
+        final aspectRatio = (preview == null || preview.width <= 0)
+            ? 1.0
+            : preview.width / preview.height;
+
         return ClipRect(
           child: FittedBox(
             fit: BoxFit.cover,
             clipBehavior: Clip.hardEdge,
-            child: SizedBox(
-              width: controller.value.previewSize?.height ??
-                  constraints.maxWidth,
-              height: controller.value.previewSize?.width ??
-                  constraints.maxHeight,
+            child: AspectRatio(
+              aspectRatio: aspectRatio,
               child: cam.CameraPreview(controller),
             ),
           ),
         );
       },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Teşhis + otomatik kurtarma (siyah ekran senaryoları için)
+  // ---------------------------------------------------------------------------
+
+  /// İlk birkaç saniyede önizleme yüzeyi bağlanmamışsa kamerayı yeniden
+  /// başlatır (MIUI'da takılan doku yüzeyi için otomatik kurtarma).
+  void _schedulePreviewRecovery() {
+    Future<void>.delayed(const Duration(milliseconds: 2500), () {
+      if (!mounted) return;
+      final ctrl = _camera.controller;
+      if (ctrl == null || !ctrl.value.isInitialized) return;
+      if (ctrl.value.previewSize != null) return; // yüzey bağlanmış.
+
+      debugPrint('[camera] previewSize yok — otomatik kurtarma deneniyor.');
+      _autoRecover();
+    });
+  }
+
+  bool _autoRecovering = false;
+
+  Future<void> _autoRecover() async {
+    if (_autoRecovering || _saving || _capturing) return;
+    _autoRecovering = true;
+    try {
+      await _camera.suspend();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await _camera.initialize();
+    } catch (_) {
+      // Hata durumunda _start() zaten arayüze mesaj yazar.
+    } finally {
+      _autoRecovering = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Teşhis sayfası: siyah ekran raporunda istenecek bilgiler.
+  void _showDiagnostics() {
+    final ctrl = _camera.controller;
+    final value = ctrl?.value;
+    final range = _camera.exposureRange;
+
+    var cameras = '<okunamadı>';
+    try {
+      // Senkron olmayan keşif yerine bilinen açıklama kullanılır.
+      cameras = _camera.description == null
+          ? 'yok'
+          : '${_camera.description!.name} (${_camera.description!.lensDirection.name})';
+    } catch (_) {}
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Kamera Teşhisi',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              _diagRow('Servis hazır', '${_camera.isReady}'),
+              _diagRow('initialize değeri', '${value?.isInitialized ?? false}'),
+              _diagRow('previewSize', '${value?.previewSize ?? 'null'}'),
+              _diagRow('Kamera', cameras),
+              _diagRow(
+                'Pozlama aralığı',
+                '${range.min} … ${range.max} (şu an ${range.value})',
+              ),
+              _diagRow('Flaş', '${_flashMode.name}'),
+              _diagRow('Mod', '${_mode.label} · ${_spec.width}×${_spec.height}'),
+              _diagRow('Hata', _error ?? 'yok'),
+              _diagRow('Arayüz durumu',
+                  'init:$_initializing çekim:$_capturing kayıt:$_saving'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _autoRecover();
+                      },
+                      icon: const Icon(Icons.restart_alt_rounded),
+                      label: const Text('Kamerayı Yeniden Başlat'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  OutlinedButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Kapat'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _diagRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                  fontSize: 13, fontFeatures: [FontFeature.tabularFigures()]),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -643,6 +789,16 @@ class _CameraScreenState extends State<CameraScreen>
                   tooltip: 'Ön/Arka',
                   icon: const Icon(Icons.cameraswitch_rounded,
                       color: Colors.white),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black.withValues(alpha: 0.35),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: _showDiagnostics,
+                  tooltip: 'Kamera teşhisi',
+                  icon: const Icon(Icons.info_outline_rounded,
+                      color: Colors.white70),
                   style: IconButton.styleFrom(
                     backgroundColor: Colors.black.withValues(alpha: 0.35),
                   ),

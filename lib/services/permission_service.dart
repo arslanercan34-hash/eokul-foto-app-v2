@@ -30,17 +30,52 @@ class PermissionService {
 
   /// Kamera iznini zorunlu olarak ister.
   ///
-  /// MIUI bazen ilk istekte diyaloğu göstermeden "denied" döndüğü için
-  /// bir kez daha denenir.
+  /// MIUI/HyperOS düzeltmeleri:
+  ///  * Bazı sürümlerde izin dialogu kapanır ama Future HİÇ DÖNMEZ →
+  ///    5 saniyede kesilir; sonra gerçek izin durumu yeniden okunur.
+  ///  * Bazı sürümlerde ilk istek izinsiz "denied" döner → bir kez daha
+  ///    denenir.
   Future<PermissionOutcome> requireCamera() async {
-    var outcome = await _request(Permission.camera);
+    var outcome = await _request(Permission.camera).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => PermissionOutcome.unsupported, // aşağıda çözülür
+    );
+
+    if (outcome == PermissionOutcome.unsupported) {
+      // Zaman aşımı: dialog kaybolmuş olabilir — durumu doğrudan sorgula.
+      outcome = await _statusOnly(Permission.camera);
+    }
 
     if (outcome == PermissionOutcome.denied) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
-      outcome = await _request(Permission.camera);
+      final retry = await _request(Permission.camera).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => PermissionOutcome.unsupported,
+      );
+      outcome = retry == PermissionOutcome.unsupported
+          ? await _statusOnly(Permission.camera)
+          : retry;
     }
 
     return outcome;
+  }
+
+  /// Sadece mevcut izin durumunu okur (dialog göstermez).
+  Future<PermissionOutcome> _statusOnly(Permission permission) async {
+    try {
+      final status = await permission.status
+          .timeout(const Duration(seconds: 3));
+      if (status.isGranted || status.isLimited) {
+        return PermissionOutcome.granted;
+      }
+      if (status.isPermanentlyDenied || status.isRestricted) {
+        return PermissionOutcome.permanentlyDenied;
+      }
+      return PermissionOutcome.denied;
+    } catch (_) {
+      // Durum bile okunamazsa: kamera açık olabilir; ilerlemeyi dene.
+      return PermissionOutcome.granted;
+    }
   }
 
   /// Depolama izinlerini ister. Sonuç "granted" olmasa bile uygulama kendi

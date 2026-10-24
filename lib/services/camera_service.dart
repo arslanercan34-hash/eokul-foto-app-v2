@@ -94,7 +94,13 @@ class CameraService {
         _controller = ctrl;
         _description = target;
 
-        // Pozlama aralığını oku (başarısız olsa da devam edilir).
+        // Önizleme yüzeyi hazır mı? (MIUI'da bazen isInitialized true
+        // dönüp texture hiç bağlanmaz → siyah ekran. 2 sn beklemez; hemen
+        // kontrol edip başarısızsa UI seviyesinde kurtarma tetiklenir.)
+        final previewReady = ctrl.value.previewSize != null &&
+            ctrl.value.isInitialized;
+
+        // Pozlama aralığını oku — kendisi timeout'lu (takılma imkansız).
         await refreshExposure();
 
         // Vesikalık için otomatik odak şart.
@@ -107,6 +113,11 @@ class CameraService {
           await ctrl.setFlashMode(cam.FlashMode.off);
         } catch (_) {}
 
+        if (!previewReady) {
+          debugPrint(
+            '[camera] previewSize=null — önizleme yüzeyi bağlanmamış olabilir.',
+          );
+        }
         return;
       } on CameraServiceException {
         rethrow;
@@ -230,19 +241,30 @@ class CameraService {
   ({double min, double max, double value}) get exposureRange => _exposure;
 
   /// Aralığı kameradan okur (initialize / kamera değiştirme sonrası çağırın).
+  ///
+  /// ÇOK ÖNEMLİ: Bazı OEM (MIUI vb.) sürümlerinde `getMinExposureOffset()`
+  /// hiç dönmez. initialize() içinde çağrıldığı için ZAMAN AŞIMINA uğramazsa
+  /// kamera asla açılmazdı (sonsuz siyah ekran). Bu yüzden 2 saniyede
+  /// kesilir; aralık okunamazsa slider gizlenir, kamera yine açılır.
   Future<void> refreshExposure() async {
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
     try {
-      final min = await ctrl.getMinExposureOffset();
-      final max = await ctrl.getMaxExposureOffset();
+      final range = await Future.wait([
+        ctrl.getMinExposureOffset(),
+        ctrl.getMaxExposureOffset(),
+      ]).timeout(const Duration(seconds: 2));
+
+      final min = (range[0] as num).toDouble();
+      final max = (range[1] as num).toDouble();
       _exposure = (
         min: min,
         max: max,
         value: _exposure.value.clamp(min, max).toDouble(),
       );
     } catch (_) {
-      // OEM kameralar pozlama aralığını sunmayabilir; slider gizlenir.
+      // Okunamadı / zaman aşımındı: min==max bırakılır, slider gizlenir.
+      _exposure = (min: 0.0, max: 0.0, value: 0.0);
     }
   }
 
